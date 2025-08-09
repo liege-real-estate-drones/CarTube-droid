@@ -18,26 +18,9 @@ object YouTubeSource {
         }
     }
 
-    suspend fun bestAudioUrl(youtubeUrl: String): String? {
+    suspend fun getBestVideoUrl(youtubeUrl: String): Result<String?> {
         return try {
-            withContext(Dispatchers.IO) {
-                ensureInit()
-                val service = ServiceList.YouTube
-                val extractor = service.getStreamExtractor(youtubeUrl)
-                extractor.fetchPage()
-                extractor.audioStreams
-                    .maxByOrNull { it.averageBitrate }
-                    ?.content
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error fetching audio URL for $youtubeUrl", e)
-            null
-        }
-    }
-
-    suspend fun getBestVideoUrl(youtubeUrl: String): String? {
-        return try {
-            withContext(Dispatchers.IO) {
+            val url = withContext(Dispatchers.IO) {
                 ensureInit()
                 val service = ServiceList.YouTube
                 val extractor = service.getStreamExtractor(youtubeUrl)
@@ -47,38 +30,73 @@ object YouTubeSource {
                     .maxByOrNull { it.resolution.substringBefore("p").toIntOrNull() ?: 0 }
                     ?.content
             }
+            Result.Success(url)
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching video URL for $youtubeUrl", e)
-            null
+            Result.Error(e)
         }
     }
 
-    suspend fun search(query: String): List<StreamInfoItem> {
+    suspend fun search(query: String): Result<List<StreamInfoItem>> {
         return try {
-            withContext(Dispatchers.IO) {
+            val items = withContext(Dispatchers.IO) {
                 ensureInit()
                 val service = ServiceList.YouTube
                 val extractor = service.getSearchExtractor(query)
                 extractor.fetchPage()
                 extractor.initialPage.items
             }
+            Result.Success(items)
         } catch (e: Exception) {
             Log.e(TAG, "Error searching for $query", e)
-            emptyList()
+            Result.Error(e)
         }
     }
 
-    suspend fun getPlaylistStreams(playlistUrl: String): List<StreamInfoItem> {
+    suspend fun getPlaylistStreams(playlistUrl: String): Result<List<StreamInfoItem>> {
         return try {
-            withContext(Dispatchers.IO) {
+            val items = withContext(Dispatchers.IO) {
                 ensureInit()
                 val service = ServiceList.YouTube
                 val extractor = service.getPlaylistExtractor(playlistUrl)
                 extractor.fetchPage()
                 extractor.initialPage.items
             }
+            Result.Success(items)
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching playlist $playlistUrl", e)
+            Result.Error(e)
+        }
+    }
+
+    // bestAudioUrl is not used anymore, but let's keep it for completeness and refactor it as well.
+    suspend fun bestAudioUrl(youtubeUrl: String): Result<String?> {
+        return try {
+            val url = withContext(Dispatchers.IO) {
+                ensureInit()
+                val service = ServiceList.YouTube
+                val extractor = service.getStreamExtractor(youtubeUrl)
+                extractor.fetchPage()
+                extractor.audioStreams
+                    .maxByOrNull { it.averageBitrate }
+                    ?.content
+            }
+            Result.Success(url)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching audio URL for $youtubeUrl", e)
+            Result.Error(e)
+        }
+    }
+
+    suspend fun getSuggestions(query: String): List<String> {
+        return try {
+            withContext(Dispatchers.IO) {
+                ensureInit()
+                val service = ServiceList.YouTube
+                service.suggestionExtractor.fetchPage(query)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching suggestions for $query", e)
             emptyList()
         }
     }

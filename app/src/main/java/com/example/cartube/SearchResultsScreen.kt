@@ -10,25 +10,28 @@ import androidx.car.app.model.ListTemplate
 import androidx.car.app.model.Row
 import androidx.car.app.model.Template
 import com.example.cartube.data.YouTubeSource
+import com.example.cartube.data.Result
 import kotlinx.coroutines.launch
+import org.schabi.newpipe.extractor.exceptions.ContentNotAvailableException
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
 
 class SearchResultsScreen(carContext: CarContext, private val query: String) : Screen(carContext) {
 
-    private enum class LoadState { LOADING, SUCCESS, EMPTY, ERROR }
-    private var loadState = LoadState.LOADING
-    private var searchResults: List<StreamInfoItem>? = null
+    private sealed class LoadState {
+        object LOADING : LoadState()
+        data class SUCCESS(val results: List<StreamInfoItem>) : LoadState()
+        object EMPTY : LoadState()
+        data class ERROR(val message: String) : LoadState()
+    }
+    private var loadState: LoadState = LoadState.LOADING
 
     init {
         lifecycle.addObserver(object : androidx.lifecycle.DefaultLifecycleObserver {
             override fun onCreate(owner: androidx.lifecycle.LifecycleOwner) {
                 lifecycleScope.launch {
-                    try {
-                        val results = YouTubeSource.search(query)
-                        searchResults = results
-                        loadState = if (results.isEmpty()) LoadState.EMPTY else LoadState.SUCCESS
-                    } catch (e: Exception) {
-                        loadState = LoadState.ERROR
+                    loadState = when (val result = YouTubeSource.search(query)) {
+                        is Result.Success -> if (result.data.isEmpty()) LoadState.EMPTY else LoadState.SUCCESS(result.data)
+                        is Result.Error -> LoadState.ERROR(getErrorMessage(result.exception))
                     }
                     invalidate()
                 }
@@ -38,13 +41,17 @@ class SearchResultsScreen(carContext: CarContext, private val query: String) : S
 
     override fun onGetTemplate(): Template {
         val listBuilder = ItemList.Builder()
+        var title = "Results for '$query'"
 
-        when (loadState) {
+        when (val state = loadState) {
             LoadState.LOADING -> listBuilder.setNoItemsMessage("Searching...")
-            LoadState.ERROR -> listBuilder.setNoItemsMessage("Error loading results.")
+            is LoadState.ERROR -> {
+                listBuilder.setNoItemsMessage(state.message)
+                title = "Error"
+            }
             LoadState.EMPTY -> listBuilder.setNoItemsMessage("No results found for \"$query\"")
-            LoadState.SUCCESS -> {
-                searchResults?.forEach { item ->
+            is LoadState.SUCCESS -> {
+                state.results.forEach { item ->
                     listBuilder.addItem(
                         Row.Builder()
                             .setTitle(item.name)
@@ -64,8 +71,15 @@ class SearchResultsScreen(carContext: CarContext, private val query: String) : S
 
         return ListTemplate.Builder()
             .setSingleList(listBuilder.build())
-            .setTitle("Results for '$query'")
+            .setTitle(title)
             .setHeaderAction(Action.BACK)
             .build()
+    }
+
+    private fun getErrorMessage(exception: Exception): String {
+        return when (exception) {
+            is ContentNotAvailableException -> "Content not available"
+            else -> "Error loading results"
+        }
     }
 }

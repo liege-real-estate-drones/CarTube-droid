@@ -7,31 +7,45 @@ import androidx.car.app.model.ItemList
 import androidx.car.app.model.ListTemplate
 import androidx.car.app.model.Row
 import androidx.car.app.model.Template
+import com.example.cartube.data.PlaylistRepository
 
 class PlaylistsScreen(carContext: CarContext) : Screen(carContext) {
 
-    // Hardcoded playlists for now
-    private val playlists = listOf(
-        "Awesome Mix Vol. 1" to "https://www.youtube.com/playlist?list=PLo5B21i1p24z3y42g6h2a0pI3p2T7h4A4",
-        "Cyberpunk 2077 OST" to "https://www.youtube.com/playlist?list=PL4h24mnl-o40-t2fAsoP6wU_N7y2e-i9g"
-    )
+    private lateinit var playlistRepository: PlaylistRepository
+    private var playlists: List<String> = emptyList()
+
+    init {
+        lifecycle.addObserver(object : androidx.lifecycle.DefaultLifecycleObserver {
+            override fun onCreate(owner: androidx.lifecycle.LifecycleOwner) {
+                playlistRepository = PlaylistRepository(carContext)
+                playlists = playlistRepository.getPlaylists().toList()
+                invalidate()
+            }
+        })
+    }
 
     override fun onGetTemplate(): Template {
         val listBuilder = ItemList.Builder()
-        playlists.forEach { (title, url) ->
-            listBuilder.addItem(
-                Row.Builder()
-                    .setTitle(title)
-                    .setOnClickListener {
-                        screenManager.push(PlaylistItemsScreen(carContext, url, title))
-                    }
-                    .build()
-            )
+        if (playlists.isEmpty()) {
+            listBuilder.setNoItemsMessage("No custom playlists added yet.\nAdd them from the phone app.")
+        } else {
+            playlists.forEach { url ->
+                listBuilder.addItem(
+                    Row.Builder()
+                        // For now, use the URL as the title. A future improvement could be to fetch the real title.
+                        .setTitle(url)
+                        .setOnClickListener {
+                            // The title is unknown here, so pass the URL as the title for now.
+                            screenManager.push(PlaylistItemsScreen(carContext, url, url))
+                        }
+                        .build()
+                )
+            }
         }
 
         return ListTemplate.Builder()
             .setSingleList(listBuilder.build())
-            .setTitle("Playlists")
+            .setTitle("My Playlists")
             .setHeaderAction(Action.BACK)
             .build()
     }

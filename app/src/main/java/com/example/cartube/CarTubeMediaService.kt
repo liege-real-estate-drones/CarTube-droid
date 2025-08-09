@@ -64,24 +64,37 @@ class CarTubeMediaService : MediaBrowserServiceCompat(), CoroutineScope by MainS
                     session.setMetadata(metadata)
 
                     launch {
-                        val url = withContext(Dispatchers.IO) {
-                            YouTubeSource.getBestVideoUrl(youtubeUrl)
-                        } ?: return@launch
+                        when (val result = YouTubeSource.getBestVideoUrl(youtubeUrl)) {
+                            is com.example.cartube.data.Result.Success -> {
+                                val url = result.data ?: run {
+                                    session.setPlaybackState(android.support.v4.media.session.PlaybackStateCompat.Builder()
+                                        .setState(android.support.v4.media.session.PlaybackStateCompat.STATE_ERROR, 0, 1f)
+                                        .setErrorMessage(android.support.v4.media.session.PlaybackStateCompat.ERROR_CODE_NOT_SUPPORTED, "No suitable stream found")
+                                        .build())
+                                    return@launch
+                                }
+                                val item = MediaItem.fromUri(url)
+                                player.setMediaItem(item)
+                                player.prepare()
+                                player.play()
 
-                        val item = MediaItem.fromUri(url)
-                        player.setMediaItem(item)
-                        player.prepare()
-                        player.play()
+                                isActive = true
+                                setPlaybackState(android.support.v4.media.session.PlaybackStateCompat.Builder()
+                                    .setActions(android.support.v4.media.session.PlaybackStateCompat.ACTION_PLAY_PAUSE or
+                                                android.support.v4.media.session.PlaybackStateCompat.ACTION_PLAY or
+                                                android.support.v4.media.session.PlaybackStateCompat.ACTION_PAUSE)
+                                    .setState(android.support.v4.media.session.PlaybackStateCompat.STATE_PLAYING, 0, 1f)
+                                    .build())
 
-                        isActive = true
-                        setPlaybackState(android.support.v4.media.session.PlaybackStateCompat.Builder()
-                            .setActions(android.support.v4.media.session.PlaybackStateCompat.ACTION_PLAY_PAUSE or
-                                        android.support.v4.media.session.PlaybackStateCompat.ACTION_PLAY or
-                                        android.support.v4.media.session.PlaybackStateCompat.ACTION_PAUSE)
-                            .setState(android.support.v4.media.session.PlaybackStateCompat.STATE_PLAYING, 0, 1f)
-                            .build())
-
-                        startForegroundWithNotification()
+                                startForegroundWithNotification()
+                            }
+                            is com.example.cartube.data.Result.Error -> {
+                                session.setPlaybackState(android.support.v4.media.session.PlaybackStateCompat.Builder()
+                                    .setState(android.support.v4.media.session.PlaybackStateCompat.STATE_ERROR, 0, 1f)
+                                    .setErrorMessage(android.support.v4.media.session.PlaybackStateCompat.ERROR_CODE_UNKNOWN_ERROR, "Failed to get stream URL")
+                                    .build())
+                            }
+                        }
                     }
                 }
                 override fun onPause() { player.pause() }
