@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.support.v4.media.MediaBrowserCompat
 import android.support.v4.media.MediaDescriptionCompat
+import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.view.Surface
 import androidx.core.app.NotificationCompat
@@ -29,25 +30,42 @@ class CarTubeMediaService : MediaBrowserServiceCompat(), CoroutineScope by MainS
     private lateinit var session: MediaSessionCompat
     lateinit var player: ExoPlayer
 
-    // Pour la démo: id -> (title, youtubeUrl)
+    // Pour la démo: (id, title, youtubeUrl) - id is not used anymore but kept for structure
     val demo = listOf(
         Triple("id1", "Lofi hip hop", "https://www.youtube.com/watch?v=jfKfPfyJRdk"),
         Triple("id2", "NCS Radio",  "https://www.youtube.com/watch?v=iKzRIweSBLA")
-    ).associateBy({ it.first }, { it })
+    )
 
     override fun onCreate() {
         super.onCreate()
         instance = this
 
-        player = ExoPlayer.Builder(this).build()
+        player = ExoPlayer.Builder(this).build().apply {
+            addListener(object : androidx.media3.common.Player.Listener {
+                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                    session.setPlaybackState(android.support.v4.media.session.PlaybackStateCompat.Builder()
+                        .setState(android.support.v4.media.session.PlaybackStateCompat.STATE_ERROR, 0, 1f)
+                        .setErrorMessage(android.support.v4.media.session.PlaybackStateCompat.ERROR_CODE_UNKNOWN_ERROR, "Playback error")
+                        .build())
+                }
+            })
+        }
 
         session = MediaSessionCompat(this, "CarTube").apply {
             setCallback(object : MediaSessionCompat.Callback() {
                 override fun onPlayFromMediaId(mediaId: String?, extras: Bundle?) {
-                    val triple = demo[mediaId] ?: return
+                    val youtubeUrl = mediaId ?: return
+                    val title = extras?.getString(MediaMetadataCompat.METADATA_KEY_TITLE) ?: "CarTube Video"
+
+                    val metadata = MediaMetadataCompat.Builder()
+                        .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title)
+                        .putString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID, mediaId)
+                        .build()
+                    session.setMetadata(metadata)
+
                     launch {
                         val url = withContext(Dispatchers.IO) {
-                            YouTubeSource.getBestVideoUrl(triple.third)
+                            YouTubeSource.getBestVideoUrl(youtubeUrl)
                         } ?: return@launch
 
                         val item = MediaItem.fromUri(url)
@@ -88,11 +106,14 @@ class CarTubeMediaService : MediaBrowserServiceCompat(), CoroutineScope by MainS
         BrowserRoot(ROOT_ID, null)
 
     override fun onLoadChildren(parentId: String, result: Result<List<MediaBrowserCompat.MediaItem>>) {
-        if (parentId != ROOT_ID) { result.sendResult(emptyList()); return }
+        if (parentId != ROOT_ID) {
+            result.sendResult(emptyList())
+            return
+        }
 
-        val items = demo.values.map { (id, title, _) ->
+        val items = demo.map { (_, title, youtubeUrl) ->
             val desc = MediaDescriptionCompat.Builder()
-                .setMediaId(id)
+                .setMediaId(youtubeUrl) // Use URL as mediaId
                 .setTitle(title)
                 .build()
             MediaBrowserCompat.MediaItem(desc, MediaBrowserCompat.MediaItem.FLAG_PLAYABLE)

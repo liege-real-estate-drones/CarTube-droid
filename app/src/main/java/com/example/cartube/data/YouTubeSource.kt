@@ -1,48 +1,85 @@
 package com.example.cartube.data
 
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.ServiceList
-import org.schabi.newpipe.extractor.stream.AudioStream
-import shalva97.newvalve.initNewPipe   // importé depuis NewValve
+import org.schabi.newpipe.extractor.stream.StreamInfoItem
+import shalva97.newvalve.initNewPipe
 
 object YouTubeSource {
+    private const val TAG = "YouTubeSource"
     @Volatile private var inited = false
 
     private fun ensureInit() {
         if (!inited) {
-            initNewPipe()   // initialise NewPipeExtractor avec OkHttp
+            initNewPipe()
             inited = true
         }
     }
 
-    /**
-     * @return l’URL du meilleur flux audio (ex. opus/webm) ou null si rien.
-     */
-    suspend fun bestAudioUrl(youtubeUrl: String): String? = withContext(Dispatchers.IO) {
-        ensureInit()
-        val service = ServiceList.YouTube
-        val extractor = service.getStreamExtractor(youtubeUrl)
-        extractor.fetchPage() // réseau — à faire en IO
-
-        extractor.audioStreams
-            .maxByOrNull { it.averageBitrate }
-            ?.content   // <- URL directe à passer à ExoPlayer
+    suspend fun bestAudioUrl(youtubeUrl: String): String? {
+        return try {
+            withContext(Dispatchers.IO) {
+                ensureInit()
+                val service = ServiceList.YouTube
+                val extractor = service.getStreamExtractor(youtubeUrl)
+                extractor.fetchPage()
+                extractor.audioStreams
+                    .maxByOrNull { it.averageBitrate }
+                    ?.content
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching audio URL for $youtubeUrl", e)
+            null
+        }
     }
 
-    /**
-     * @return l’URL du meilleur flux vidéo avec audio, ou null si rien.
-     */
-    suspend fun getBestVideoUrl(youtubeUrl: String): String? = withContext(Dispatchers.IO) {
-        ensureInit()
-        val service = ServiceList.YouTube
-        val extractor = service.getStreamExtractor(youtubeUrl)
-        extractor.fetchPage() // réseau — à faire en IO
+    suspend fun getBestVideoUrl(youtubeUrl: String): String? {
+        return try {
+            withContext(Dispatchers.IO) {
+                ensureInit()
+                val service = ServiceList.YouTube
+                val extractor = service.getStreamExtractor(youtubeUrl)
+                extractor.fetchPage()
+                extractor.videoStreams
+                    .filter { !it.isVideoOnly }
+                    .maxByOrNull { it.resolution.substringBefore("p").toIntOrNull() ?: 0 }
+                    ?.content
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching video URL for $youtubeUrl", e)
+            null
+        }
+    }
 
-        // Find the best quality stream that has both video and audio.
-        extractor.videoStreams
-            .filter { !it.isVideoOnly }
-            .maxByOrNull { it.resolution.substringBefore("p").toIntOrNull() ?: 0 }
-            ?.content
+    suspend fun search(query: String): List<StreamInfoItem> {
+        return try {
+            withContext(Dispatchers.IO) {
+                ensureInit()
+                val service = ServiceList.YouTube
+                val extractor = service.getSearchExtractor(query)
+                extractor.fetchPage()
+                extractor.initialPage.items
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error searching for $query", e)
+            emptyList()
+        }
+    }
+
+    suspend fun getPlaylistStreams(playlistUrl: String): List<StreamInfoItem> {
+        return try {
+            withContext(Dispatchers.IO) {
+                ensureInit()
+                val service = ServiceList.YouTube
+                val extractor = service.getPlaylistExtractor(playlistUrl)
+                extractor.fetchPage()
+                extractor.initialPage.items
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching playlist $playlistUrl", e)
+            emptyList()
+        }
     }
 }
